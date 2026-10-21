@@ -1,10 +1,16 @@
 /* Shared helpers: dates, formatting, slicers, Chart.js wrappers, tables, tooltip. */
 const UTY = (() => {
-  // Power BI theme "UTY Development" - categorical order is fixed, never cycled.
+  // Brand blues, dark -> light: Deep Space Blue, Yale Blue x2, Dusk Blue, Rich Cerulean, Cerulean,
+  // Pacific Blue, Sky Blue (Light), Light Blue.
+  const P = ['#012A4A', '#013A63', '#01497C', '#014F86', '#2A6F97', '#2C7DA0', '#61A5C2', '#89C2D9', '#A9D6E5'];
+  // Categorical order is fixed (never cycled) and alternates dark / light so neighbouring series stay apart.
   const C = {
-    series: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
-    good: '#0ca30c', warn: '#eda100', neutral: '#fab219', bad: '#d03b3b', gray: '#a19f9d',
-    ink: '#252423', ink2: '#52514e', muted: '#8a8886', grid: '#edebe9', border: '#e1dfdd',
+    P,
+    series: [P[2], P[6], P[0], P[5], P[8], P[3], P[7], P[4], P[1]],
+    // state colours: done/good = dark blue, in progress = light blue, not tracked = grey;
+    // red is kept only for alerts (overdue / fail) so they never read as just another blue.
+    good: P[2], warn: P[6], neutral: P[8], bad: '#d64545', gray: '#b8c4cc',
+    ink: '#14213d', ink2: '#3f4f5f', muted: '#7b8a97', grid: '#e6edf2', border: '#dfe7ed',
   };
 
   // ---------------------------------------------------------------- dates (day numbers, UTC)
@@ -189,6 +195,8 @@ const UTY = (() => {
     Chart.defaults.plugins.tooltip.borderWidth = 1;
     Chart.defaults.plugins.tooltip.padding = 8;
     Chart.defaults.plugins.tooltip.boxPadding = 4;
+    Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    Chart.defaults.plugins.tooltip.usePointStyle = true;
     if (Chart.defaults.plugins.datalabels) Chart.defaults.plugins.datalabels.display = false;
   }
   const destroyCharts = () => { charts.forEach(c => c.destroy()); charts = []; };
@@ -200,35 +208,37 @@ const UTY = (() => {
     return c;
   }
 
-  /* bar({labels, series:[{label,data,color}], horizontal, stacked, fmt:'int'|'pct', labels:true, onClick(label)}) */
+  /* bar({labels, series:[{label,data,color}], horizontal, stacked, fmt:'int'|'pct', showLabels, onClick(label)}) */
   function bar(box, o) {
     const f = FMT[o.fmt || 'int'];
     const horiz = !!o.horizontal;
-    if (horiz && o.autoHeight !== false) box.style.height = `${Math.max(150, o.labels.length * (o.stacked ? 22 : 20) + 60)}px`;
+    if (horiz && o.autoHeight !== false) box.style.height = `${Math.max(150, o.labels.length * (o.stacked ? 24 : 22) + 60)}px`;
     const multi = o.series.length > 1;
     const datasets = o.series.map((s, i) => ({
       label: s.label, data: s.data, backgroundColor: s.color || C.series[i],
-      borderColor: '#fff', borderWidth: o.stacked ? (horiz ? { left: 0, right: 2, top: 0, bottom: 0 } : { top: 2, bottom: 0, left: 0, right: 0 }) : 0,
-      borderRadius: o.stacked ? 0 : 4, borderSkipped: 'start', maxBarThickness: 28,
-      categoryPercentage: 0.8, barPercentage: multi && !o.stacked ? 0.9 : 0.75,
+      // rounded data-ends; stacked segments are rounded pills split by a 2px surface gap
+      borderColor: '#fff', borderWidth: o.stacked ? 1 : 0,
+      borderRadius: o.stacked ? 4 : 6, borderSkipped: o.stacked ? false : 'start',
+      maxBarThickness: horiz ? 18 : (o.stacked ? 34 : 26),
+      categoryPercentage: multi && !o.stacked ? 0.7 : 0.8, barPercentage: multi && !o.stacked ? 0.85 : 0.7,
     }));
     const valueAxis = {
-      beginAtZero: true, stacked: !!o.stacked, grid: { color: C.grid }, border: { display: false },
-      ticks: { color: C.ink2, font: { size: 10 }, callback: v => (o.fmt === 'pct' ? `${Math.round(v * 100)}%` : int(v)), precision: 0 },
+      beginAtZero: true, stacked: !!o.stacked, grid: { color: C.grid }, border: { display: false, dash: [3, 4] },
+      ticks: { color: C.muted, font: { size: 10 }, callback: v => (o.fmt === 'pct' ? `${Math.round(v * 100)}%` : int(v)), precision: 0 },
       max: o.max, grace: !horiz && !o.stacked && o.max == null ? '12%' : 0,
     };
-    const catAxis = { stacked: !!o.stacked, grid: { display: false }, border: { color: C.border },
+    const catAxis = { stacked: !!o.stacked, grid: { display: false }, border: { display: false },
       ticks: { color: C.ink2, font: { size: 10 }, autoSkip: !horiz, maxRotation: 45 } };
     return mount(box, {
       type: 'bar',
       data: { labels: o.labels, datasets },
       options: {
         indexAxis: horiz ? 'y' : 'x',
-        layout: { padding: { right: horiz && o.showLabels !== false ? 34 : 4, top: !horiz && o.showLabels !== false && !o.stacked ? 16 : 0 } },
+        layout: { padding: { right: horiz && o.showLabels !== false && !o.stacked ? 34 : 4, top: !horiz && o.showLabels !== false && !o.stacked ? 16 : 0 } },
         scales: horiz ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis },
         interaction: o.stacked ? { mode: 'index', axis: horiz ? 'y' : 'x', intersect: false } : { mode: 'nearest', intersect: true },
         plugins: {
-          legend: { display: multi, position: 'top', align: 'start' },
+          legend: { display: multi, position: 'top', align: 'start', labels: { usePointStyle: true, pointStyle: 'rectRounded' } },
           tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${f(ctx.parsed[horiz ? 'x' : 'y'])}` } },
           datalabels: o.showLabels === false ? { display: false } : o.stacked ? {
             display: ctx => {
@@ -236,10 +246,10 @@ const UTY = (() => {
               const tot = ctx.chart.data.datasets.reduce((a, d, i) => a + (ctx.chart.isDatasetVisible(i) ? (d.data[ctx.dataIndex] || 0) : 0), 0);
               return v > 0 && v / (tot || 1) > 0.09;
             },
-            color: '#fff', font: { size: 10, weight: 'bold' }, formatter: v => f(v),
+            color: ctx => textOn(ctx.dataset.backgroundColor), font: { size: 10, weight: 'bold' }, formatter: v => f(v),
           } : {
             display: ctx => ctx.dataset.data[ctx.dataIndex] != null && (ctx.dataset.data[ctx.dataIndex] !== 0 || o.fmt === 'pct'),
-            anchor: 'end', align: 'end', offset: 2, clamp: true, color: C.ink, font: { size: 10 }, formatter: v => f(v),
+            anchor: 'end', align: 'end', offset: 2, clamp: true, color: C.ink, font: { size: 10, weight: 'bold' }, formatter: v => f(v),
           },
         },
         onClick: o.onClick ? (e, els) => { if (els.length) o.onClick(o.labels[els[0].index]); } : undefined,
@@ -248,47 +258,188 @@ const UTY = (() => {
     });
   }
 
+  // thick ring with rounded segment ends and the total in the middle
+  const centerText = {
+    id: 'centerText',
+    afterDraw(ch, args, opt) {
+      if (!opt || opt.value == null) return;
+      const { ctx, chartArea: a } = ch;
+      const meta = ch.getDatasetMeta(0).data[0];
+      const x = meta ? meta.x : (a.left + a.right) / 2, y = meta ? meta.y : (a.top + a.bottom) / 2;
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.fillStyle = C.ink;
+      ctx.font = 'bold 20px Tahoma, "Segoe UI", sans-serif';
+      ctx.fillText(opt.value, x, y + 3);
+      ctx.font = '10px Tahoma, "Segoe UI", sans-serif'; ctx.fillStyle = C.muted;
+      ctx.fillText(opt.label || '', x, y + 18);
+      ctx.restore();
+    },
+  };
   function donut(box, o) {
     const total = o.data.reduce((a, b) => a + b, 0);
     return mount(box, {
       type: 'doughnut',
-      data: { labels: o.labels, datasets: [{ data: o.data, backgroundColor: o.colors, borderColor: '#fff', borderWidth: 2 }] },
+      data: { labels: o.labels, datasets: [{ data: o.data, backgroundColor: o.colors, borderWidth: 0, borderRadius: 6, spacing: 3 }] },
+      plugins: [centerText],
       options: {
-        cutout: '58%',
+        cutout: '74%',
         plugins: {
+          centerText: { value: int(total), label: o.centerLabel || 'total' },
           legend: {
             position: 'right',
             labels: {
+              usePointStyle: true, pointStyle: 'circle',
               generateLabels: ch => ch.data.labels.map((l, i) => ({
                 text: `${l} — ${total ? Math.round((o.data[i] / total) * 100) : 0}%`, fillStyle: o.colors[i], strokeStyle: o.colors[i],
-                hidden: !ch.getDataVisibility(i), index: i,
+                hidden: !ch.getDataVisibility(i), index: i, pointStyle: 'circle',
               })),
             },
             onClick: (e, item, legend) => { legend.chart.toggleDataVisibility(item.index); legend.chart.update(); },
           },
           tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${int(ctx.parsed)} (${pct(ctx.parsed / total)})` } },
-          datalabels: { display: ctx => total && ctx.dataset.data[ctx.dataIndex] / total > 0.06, color: '#fff', font: { size: 10, weight: 'bold' },
-            formatter: v => int(v) },
+          datalabels: { display: false },
         },
       },
     });
   }
 
-  // ---------------------------------------------------------------- heat colour (sequential, one hue light -> dark)
-  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
-  const HMIN = hex('#cde2fb'), HMAX = hex('#2a78d6');
-  function heat(v, max) {
-    if (!v || !max) return 'background:#fff;color:#a19f9d';
-    const t = Math.min(1, v / max);
-    const c = HMIN.map((a, i) => Math.round(a + (HMAX[i] - a) * t));
-    return `background:rgb(${c.join(',')});color:${t > 0.55 ? '#fff' : C.ink}`;
+  /* line({labels, series:[{label,data,color,fill}], fmt}) - thin line, round points, soft area fill */
+  function line(box, o) {
+    const f = FMT[o.fmt || 'int'];
+    return mount(box, {
+      type: 'line',
+      data: {
+        labels: o.labels,
+        datasets: o.series.map((s, i) => ({
+          label: s.label, data: s.data, borderColor: s.color || C.series[i], borderWidth: 2, tension: 0.35,
+          pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: '#fff', pointBorderWidth: 2,
+          fill: s.fill ? 'origin' : false,
+          backgroundColor: ctx => {
+            const { chart } = ctx;
+            if (!chart.chartArea) return 'transparent';
+            const g = chart.ctx.createLinearGradient(0, chart.chartArea.top, 0, chart.chartArea.bottom);
+            g.addColorStop(0, hexA(s.color || C.series[i], 0.55)); g.addColorStop(1, hexA(s.color || C.series[i], 0.04));
+            return g;
+          },
+        })),
+      },
+      options: {
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: C.ink2, font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 } },
+          y: { beginAtZero: true, grid: { color: C.grid }, border: { display: false, dash: [3, 4] }, ticks: { color: C.muted, font: { size: 10 }, callback: v => f(v) } },
+        },
+        plugins: {
+          legend: { display: o.series.length > 1, position: 'top', align: 'start', labels: { usePointStyle: true, pointStyle: 'circle' } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${f(ctx.parsed.y)}` } },
+          datalabels: { display: false },
+        },
+      },
+    });
   }
 
-  // ---------------------------------------------------------------- KPI cards
+  /* progress(box, [{label, value, max, text, color}]) - pill tracks like the reference */
+  function progress(box, items) {
+    box.innerHTML = items.length ? `<div class="prog">${items.map((it, i) => {
+      const p = it.max ? Math.max(0, Math.min(1, it.value / it.max)) : 0;
+      return `<div class="prow" title="${esc(it.title || '')}"><div class="plab"><span>${esc(it.label)}</span><b>${esc(it.text ?? pct(p))}</b></div>
+        <div class="ptrack"><div class="pfill" style="width:${(p * 100).toFixed(1)}%;background:${it.color || C.series[i % 2 === 0 ? 0 : 3]}"></div></div></div>`;
+    }).join('')}</div>` : '<div class="empty">No data</div>';
+  }
+
+  // ---------------------------------------------------------------- heat colour (sequential, one hue light -> dark)
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const hexA = (h, a) => `rgba(${hex(h).join(',')},${a})`;
+  const textOn = h => {
+    if (typeof h !== 'string' || h[0] !== '#') return '#fff';
+    const [r, g, b] = hex(h);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? C.ink : '#fff';
+  };
+  // sequential ramp through the brand steps (straight light -> dark mixing turns grey in the middle)
+  const RAMP = ['#e4f1f7', '#A9D6E5', '#89C2D9', '#61A5C2', '#2C7DA0', '#01497C', '#012A4A'].map(hex);
+  function heat(v, max) {
+    if (!v || !max) return 'background:#fff;color:#a8b3bd';
+    const t = Math.min(1, v / max) * (RAMP.length - 1), i = Math.min(RAMP.length - 2, Math.floor(t)), f = t - i;
+    const c = RAMP[i].map((a, k) => Math.round(a + (RAMP[i + 1][k] - a) * f));
+    return `background:rgb(${c.join(',')});color:${t > 2.6 ? '#fff' : C.ink}`;
+  }
+
+  // ---------------------------------------------------------------- KPI cards (first tile filled, % values get a ring)
+  const ring = (p, color = C.P[3]) => {
+    const r = 19, L = 2 * Math.PI * r, v = Math.max(0, Math.min(1, p || 0));
+    return `<svg class="ring" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="${r}" fill="none" stroke="#e4eef4" stroke-width="6"/>
+      <circle cx="24" cy="24" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round"
+        stroke-dasharray="${(v * L).toFixed(1)} ${L.toFixed(1)}" transform="rotate(-90 24 24)"/></svg>`;
+  };
   function kpis(el, items) {
     el.className = 'kpis';
-    el.innerHTML = items.map(k => `<div class="kpi ${k.cls || ''}" title="${esc(k.help || '')}">
-      <div class="v">${esc((FMT[k.fmt || 'int'])(k.value))}</div><div class="l">${esc(k.label)}</div>${k.sub ? `<div class="s">${esc(k.sub)}</div>` : ''}</div>`).join('');
+    el.innerHTML = items.map((k, i) => {
+      const accent = i === 0 && k.accent !== false;
+      const showRing = k.fmt === 'pct' && k.value != null && !accent;
+      return `<div class="kpi ${accent ? 'accent' : ''} ${k.cls || ''}" title="${esc(k.help || '')}">
+        <div class="kv"><div><div class="v">${esc((FMT[k.fmt || 'int'])(k.value))}</div><div class="l">${esc(k.label)}</div>${k.sub ? `<div class="s">${esc(k.sub)}</div>` : ''}</div>
+        ${showRing ? ring(k.value, k.cls === 'bad' ? C.bad : C.P[3]) : ''}</div></div>`;
+    }).join('');
+  }
+
+  /* sankey(box, {columns:[label], nodes:[{id,col,label,color,order}], links:[{source,target,value,color,group,tip}], height})
+     Fixed-column layout drawn as SVG; hovering a band highlights its group (e.g. one model) end to end. */
+  function sankey(box, o) {
+    const W = Math.max(560, box.clientWidth || 900), H = o.height || 360;
+    const padL = 6, padR = 6, top = 26, bottom = 6, nodeW = 12, gap = 6;
+    const K = o.columns.length;
+    const colX = i => padL + (i * (W - padL - padR - nodeW)) / (K - 1);
+    const N = new Map(o.nodes.map(n => [n.id, { ...n, in: 0, out: 0 }]));
+    const links = o.links.filter(l => l.value > 0 && N.has(l.source) && N.has(l.target)).map(l => ({ ...l }));
+    links.forEach(l => { N.get(l.source).out += l.value; N.get(l.target).in += l.value; });
+    const nodes = [...N.values()].filter(n => n.in || n.out || n.value);
+    nodes.forEach(n => { n.size = Math.max(n.in, n.out, n.value || 0); });
+    const cols = Array.from({ length: K }, (_, i) => nodes.filter(n => n.col === i).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+    const ky = Math.min(...cols.filter(c => c.length).map(c => (H - top - bottom - gap * (c.length - 1)) / c.reduce((a, n) => a + n.size, 0)));
+    cols.forEach(c => { let y = top; c.forEach(n => { n.x = colX(n.col); n.y = y; n.h = Math.max(2, n.size * ky); y += n.h + gap; }); });
+    // link offsets: outgoing sorted by target y, incoming by source y
+    nodes.forEach(n => { n.so = 0; n.to = 0; });
+    const byNode = (id, key) => links.filter(l => l[key] === id);
+    nodes.forEach(n => {
+      byNode(n.id, 'source').sort((a, b) => N.get(a.target).y - N.get(b.target).y || (a.order ?? 0) - (b.order ?? 0))
+        .forEach(l => { l.sy = n.y + n.so; n.so += l.value * ky; });
+      byNode(n.id, 'target').sort((a, b) => N.get(a.source).y - N.get(b.source).y || (a.order ?? 0) - (b.order ?? 0))
+        .forEach(l => { l.ty = n.y + n.to; n.to += l.value * ky; });
+    });
+    let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(o.title || 'Sankey diagram')}">`;
+    o.columns.forEach((c, i) => {
+      const x = colX(i) + (i === 0 ? 0 : i === K - 1 ? nodeW : nodeW / 2);
+      svg += `<text class="scol" x="${x}" y="14" text-anchor="${i === 0 ? 'start' : i === K - 1 ? 'end' : 'middle'}">${esc(c)}</text>`;
+    });
+    links.forEach((l, i) => {
+      const s = N.get(l.source), t = N.get(l.target), h = l.value * ky;
+      const x0 = s.x + nodeW, x1 = t.x, xm = (x0 + x1) / 2;
+      svg += `<path class="slink" data-i="${i}" data-g="${esc(l.group || '')}" fill="${l.color}" d="M${x0},${l.sy} C${xm},${l.sy} ${xm},${l.ty} ${x1},${l.ty} L${x1},${l.ty + h} C${xm},${l.ty + h} ${xm},${l.sy + h} ${x0},${l.sy + h} Z"/>`;
+    });
+    nodes.forEach(n => {
+      svg += `<rect class="snode" data-n="${esc(n.id)}" data-g="${esc(n.group || '')}" x="${n.x}" y="${n.y}" width="${nodeW}" height="${n.h}" rx="3" fill="${n.color}"/>`;
+      if (n.h >= 9) {
+        const right = n.col < K - 1;
+        svg += `<text class="slab" x="${right ? n.x + nodeW + 5 : n.x - 5}" y="${n.y + n.h / 2 + 4}" text-anchor="${right ? 'start' : 'end'}">${esc(n.label)} <tspan class="sval">${int(n.size)}</tspan></text>`;
+      }
+    });
+    svg += '</svg>';
+    box.innerHTML = `<div class="sankey">${svg}</div>`;
+    const el = box.querySelector('svg');
+    const focus = g => {
+      el.classList.toggle('focus', !!g);
+      el.querySelectorAll('[data-g]').forEach(p => p.classList.toggle('on', !!g && p.dataset.g === g));
+    };
+    el.querySelectorAll('.slink').forEach(p => {
+      const l = links[+p.dataset.i];
+      p.addEventListener('mousemove', e => { focus(l.group); tip.show(l.tip || `<b>${esc(N.get(l.source).label)} → ${esc(N.get(l.target).label)}</b>${int(l.value)}`, e); });
+      p.addEventListener('mouseleave', () => { focus(null); tip.hide(); });
+    });
+    el.querySelectorAll('.snode').forEach(r => {
+      const n = N.get(r.dataset.n);
+      r.addEventListener('mousemove', e => { focus(n.group); tip.show(n.tip || `<b>${esc(n.label)}</b>${int(n.size)}`, e); });
+      r.addEventListener('mouseleave', () => { focus(null); tip.hide(); });
+    });
   }
 
   // ---------------------------------------------------------------- table with sort, CSV and "show all"
@@ -369,6 +520,6 @@ const UTY = (() => {
     C, dn, todayN, fmtD, fmtLong, weekStart, weekLabel, rel, toDate, MON, pad,
     esc, int, pct, dec, FMT, div, uniq, count, sum, avg, median, store,
     STATIC, api, getJSON, $, setInfo, errorBox, tip, slicer, chips,
-    destroyCharts, bar, donut, heat, kpis, table, matrix, csvDownload, pill,
+    destroyCharts, bar, donut, line, progress, sankey, ring, heat, hexA, kpis, table, matrix, csvDownload, pill,
   };
 })();

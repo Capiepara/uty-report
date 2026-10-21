@@ -6,7 +6,7 @@
   const STAGES = ['LR2', 'FLC', 'SMS'];
   // fixed colour per milestone (categorical, never re-assigned by filter)
   const KCOLOR = {
-    tpcad: C.series[0], matOrdered: C.series[1], matArrive: C.series[2], xfd: C.series[6], toolingLock: C.series[4], patternLock: C.series[3],
+    tpcad: C.P[2], matOrdered: C.P[5], matArrive: C.P[6], xfd: C.P[0], toolingLock: C.P[7], patternLock: C.P[8],
   };
 
   let DATA = null, KEYS = [], EVENTS = [];
@@ -167,19 +167,19 @@
       const pts = ev.filter(e => e.season === r.season && e.stage === r.stage);
       if (pts.length > 1) {
         const a = Math.min(...pts.map(e => e.n)), b = Math.max(...pts.map(e => e.n));
-        svg += `<rect x="${x(a)}" y="${y - 4}" width="${Math.max(2, x(b) - x(a))}" height="8" rx="4" fill="#e1dfdd" opacity=".7"/>`;
+        svg += `<rect x="${x(a)}" y="${y - 4}" width="${Math.max(2, x(b) - x(a))}" height="8" rx="4" fill="#e4eef4"/>`;
       }
       pts.forEach(e => {
-        const cx = x(e.n), col = KCOLOR[e.key];
+        const cx = x(e.n), col = KCOLOR[e.key], edge = [C.P[7], C.P[8]].includes(col) ? C.P[4] : '#fff';
         const mark = e.calc
-          ? `<rect x="${cx - 5}" y="${y - 5}" width="10" height="10" transform="rotate(45 ${cx} ${y})" fill="${col}" stroke="#fff" stroke-width="2"/>`
-          : `<circle cx="${cx}" cy="${y}" r="5.5" fill="${col}" stroke="#fff" stroke-width="2"/>`;
+          ? `<rect x="${cx - 5}" y="${y - 5}" width="10" height="10" transform="rotate(45 ${cx} ${y})" fill="${col}" stroke="${edge}" stroke-width="1.5"/>`
+          : `<circle cx="${cx}" cy="${y}" r="5.5" fill="${col}" stroke="${edge}" stroke-width="1.5"/>`;
         svg += `<g class="pt" data-i="${EVENTS.indexOf(e)}">${mark}<circle cx="${cx}" cy="${y}" r="11" fill="transparent"/></g>`;
       });
     });
     if (T >= lo && T <= hi) {
-      svg += `<line x1="${x(T)}" x2="${x(T)}" y1="${TOP - 6}" y2="${H - 4}" stroke="${C.bad}" stroke-width="2" stroke-dasharray="4 3"/>
-        <text class="axis" x="${x(T) + 4}" y="${H - 6}" fill="${C.bad}" style="fill:${C.bad}">Today</text>`;
+      svg += `<line x1="${x(T)}" x2="${x(T)}" y1="${TOP - 6}" y2="${H - 4}" stroke="${C.P[0]}" stroke-width="2" stroke-dasharray="4 3"/>
+        <text class="axis" x="${x(T) + 4}" y="${H - 6}" style="fill:${C.P[0]};font-weight:bold">Today</text>`;
     }
     svg += '</svg>';
     box.innerHTML = `<div class="legend">${keysShown().map(k => `<span><i style="--c:${KCOLOR[k.key]};${k.key === 'toolingLock' || k.key === 'patternLock' ? 'transform:rotate(45deg) scale(.85)' : 'border-radius:50%'}"></i>${U.esc(k.label)}</span>`).join('')}

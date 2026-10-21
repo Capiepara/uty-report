@@ -7,6 +7,7 @@
   const PAGES = [
     ['overview', 'Development Overview', 'UTY Industrial development lines | LR2 > FLC > SMS > CFM > Buy Ready'],
     ['flow', 'Model & Material Flow', 'Stage total = all lines at the stage (active + dropped) | CFM = active SMS lines'],
+    ['sankey', 'Model Stage Flow', 'How each model moves LR2 → FLC → SMS → CFM in every season | band width = development lines (Dev codes)'],
     ['milestones', 'Milestone Tracking', 'Plan vs actual for active lines | Overdue = plan date passed and no actual date'],
     ['xfd', 'XFD & Shipment Performance', 'On time = Latest XFD - Latest HQ XFD <= 2 days | dropped lines are left out'],
     ['fit', 'Fit Test (K1 - K4)', 'First-round and re-fit results by K stage'],
@@ -23,7 +24,7 @@
   const STATUS_COLOR = { Active: C.series[0], Dropped: C.series[1] };
   const MS_STATUS = [
     ['Done', C.good, m => m.status === 'Done' || m.status === 'Existing'],
-    ['Due (not late)', C.series[0], m => m.status === 'Open' && m.planN >= T],
+    ['Due (not late)', C.P[6], m => m.status === 'Open' && m.planN >= T],
     ['Overdue', C.bad, m => m.status === 'Open' && m.planN < T],
     ['TBD', C.neutral, m => m.status === 'TBD'],
   ];
@@ -74,6 +75,72 @@
       shipped: act.filter(l => l.shipped).length,
       msA, overdue,
     };
+  }
+
+  // ---------------------------------------------------------------- model stage flow (Sankey)
+  const STEPS = ['LR2', 'FLC', 'SMS', 'CFM'];
+  const DROP_COL = '#9fb0bd', ADD_COL = C.P[8];
+  const filteredExcept = skip => ALL.filter(l => SLICERS.every(([k]) => skip.includes(k) || sel[k].size === 0 || sel[k].has(l[k])));
+
+  /* One season: follow each Dev Code through LR2 -> FLC -> SMS (-> CFM when active at SMS). */
+  function seasonFlow(rows) {
+    const codes = new Map();
+    rows.forEach(l => {
+      const c = codes.get(l.devCode) || { model: l.model || '(no model)', st: {} };
+      c.st[l.stage] = l.status;
+      codes.set(l.devCode, c);
+    });
+    const list = [...codes.values()];
+    const ranked = byCount(U.count(list, c => c.model)).map(x => x[0]);
+    const top = ranked.slice(0, ranked.length > 9 ? 8 : 9);
+    const grp = m => (top.includes(m) ? m : 'Other models');
+    const color = g => (g === 'Other models' ? C.gray : C.series[top.indexOf(g)]);
+    const groups = [...top, ...(ranked.length > top.length ? ['Other models'] : [])];
+
+    const nodes = [], links = new Map(), size = new Map();
+    const bump = (id, n = 1) => size.set(id, (size.get(id) || 0) + n);
+    groups.forEach((g, gi) => STEPS.forEach((s, si) => nodes.push({ id: `${g}|${s}`, col: si, label: g, color: color(g), order: gi, group: g })));
+    for (let i = 1; i < STEPS.length; i++) nodes.push({ id: `drop|${i}`, col: i, label: `Dropped at ${STEPS[i - 1]}`, color: DROP_COL, order: 900 });
+    for (let i = 0; i < 2; i++) nodes.push({ id: `add|${i}`, col: i, label: `Added at ${STEPS[i + 1]}`, color: ADD_COL, order: 950 });
+    const link = (source, target, g, kind) => {
+      const k = `${source}>${target}`;
+      const l = links.get(k) || { source, target, value: 0, group: g, kind, color: kind === 'drop' ? DROP_COL : color(g) };
+      l.value += 1; links.set(k, l);
+    };
+    const m = { codes: list.length, lr2: 0, flc: 0, sms: 0, cfm: 0, lr2flc: 0, flcsms: 0, addFlc: 0, addSms: 0, dropped: 0, models: ranked.length };
+    list.forEach(c => {
+      const g = grp(c.model);
+      const present = STEPS.slice(0, 3).filter(s => c.st[s]);
+      if (!present.length) return;
+      present.forEach(s => { m[s.toLowerCase()] += 1; bump(`${g}|${s}`); });
+      if (c.st.LR2 && c.st.FLC) m.lr2flc += 1;
+      if (c.st.FLC && c.st.SMS) m.flcsms += 1;
+      const fi = STEPS.indexOf(present[0]);
+      if (fi > 0) { link(`add|${fi - 1}`, `${g}|${present[0]}`, g, 'add'); m[fi === 1 ? 'addFlc' : 'addSms'] += 1; }
+      for (let j = 0; j < present.length; j++) {
+        const s = present[j], si = STEPS.indexOf(s);
+        if (c.st[s] === 'Dropped') { link(`${g}|${s}`, `drop|${si + 1}`, g, 'drop'); m.dropped += 1; break; }
+        if (present[j + 1]) link(`${g}|${s}`, `${g}|${present[j + 1]}`, g, 'carry');
+        else if (s === 'SMS') { link(`${g}|SMS`, `${g}|CFM`, g, 'carry'); m.cfm += 1; bump(`${g}|CFM`); }
+      }
+    });
+    nodes.forEach(n => {
+      n.value = size.get(n.id) || 0;
+      if (n.group) {
+        const out = [...links.values()].filter(l => l.source === n.id);
+        const dropped = U.sum(out.filter(l => l.kind === 'drop'), l => l.value), carried = U.sum(out.filter(l => l.kind === 'carry'), l => l.value);
+        const step = STEPS[n.col];
+        n.tip = `<b>${U.esc(n.group)} · ${step}</b>${U.int(n.value)} line${n.value === 1 ? '' : 's'}`
+          + (step !== 'CFM' ? `<br><span class="muted">→ next stage ${U.int(carried)} · dropped ${U.int(dropped)}${n.value - carried - dropped > 0 ? ` · still at ${step} ${U.int(n.value - carried - dropped)}` : ''}</span>` : '');
+      }
+    });
+    const L = [...links.values()];
+    L.forEach(l => {
+      const s = nodes.find(n => n.id === l.source), t = nodes.find(n => n.id === l.target);
+      l.tip = `<b>${U.esc(l.group)}</b>${U.esc(s.group ? STEPS[s.col] : s.label)} → ${U.esc(t.group ? STEPS[t.col] : t.label)}: ${U.int(l.value)} line${l.value === 1 ? '' : 's'}`;
+    });
+    const maxCol = Math.max(...STEPS.map((s, i) => nodes.filter(n => n.col === i && n.value + U.sum(L.filter(l => l.target === n.id), l => l.value) > 0).length));
+    return { m, top, chart: { columns: STEPS, nodes, links: L, height: Math.max(280, Math.min(560, maxCol * 30 + 60)) } };
   }
 
   // ---------------------------------------------------------------- page chrome
@@ -159,7 +226,7 @@
         total: (r, c) => act.filter(l => (r == null || l.season === r) && (c == null || l.stage === c)).length, heat: true,
       });
       const mats = byCount(U.count(act, l => l.mat));
-      U.donut(U.$('#c3'), { labels: mats.map(m => m[0]), data: mats.map(m => m[1]), colors: mats.map(m => MAT_COLOR[m[0]] || C.gray) });
+      U.donut(U.$('#c3'), { labels: mats.map(m => m[0]), data: mats.map(m => m[1]), colors: mats.map(m => MAT_COLOR[m[0]] || C.gray), centerLabel: 'active lines' });
       const fty = byCount(U.count(act, l => l.factory));
       U.bar(U.$('#c4'), { labels: fty.map(f => f[0]), horizontal: true, series: [{ label: 'Active lines', data: fty.map(f => f[1]) }], onClick: f => toggleFilter('factory', f) });
       const mdl = byCount(U.count(act, l => l.model));
@@ -328,7 +395,7 @@
       ]);
       msStatusChart('c1', ready, MS_NAMES.slice(0, 5), true);
       const types = ['New tooling', 'Existing tooling', 'No new tooling needed', 'TBD'].map(t => [t, models(t)]).filter(t => t[1]);
-      U.donut(U.$('#c2'), { labels: types.map(t => t[0]), data: types.map(t => t[1]), colors: types.map((t, i) => C.series[i]) });
+      U.donut(U.$('#c2'), { labels: types.map(t => t[0]), data: types.map(t => t[1]), colors: types.map((t, i) => C.series[i]), centerLabel: 'models' });
       const nt = act.filter(l => l.tooling === 'New tooling');
       const fty = U.uniq(nt.map(l => l.factory)).map(f => [f, distinct(nt.filter(l => l.factory === f), l => l.model)]).sort((a, b) => b[1] - a[1]);
       U.bar(U.$('#c3'), { labels: fty.map(f => f[0]), horizontal: true, series: [{ label: 'New tooling models', data: fty.map(f => f[1]) }], onClick: f => toggleFilter('factory', f) });
@@ -338,6 +405,52 @@
           { key: 'plan', label: 'Plan Date', fmt: U.fmtD, sort: r => r.planN }, { key: 'etd', label: 'ETD', fmt: U.fmtD },
           { key: 'daysOver', label: 'Days Overdue', num: true, get: r => (r.planN < T ? T - r.planN : null) }],
       });
+    },
+
+    sankey(body) {
+      // Stage and Status slicers are not applied here: the chart itself shows every stage and every drop.
+      const base = filteredExcept(['stage', 'status']);
+      const seasons = seasonOrder(base);
+      const flows = seasons.map(s => ({ season: s, ...seasonFlow(base.filter(l => l.season === s)) }));
+      const tot = k => U.sum(flows, f => f.m[k]);
+      body.innerHTML = `<div id="k"></div>
+        <div class="card"><h3>Stage conversion by season</h3><div id="t1"></div>
+          <div class="note">Lines are Dev codes followed through the season by Dev Code. Carried = present at the next stage. Added = first appears at FLC / SMS (late add or new code).
+          CFM = active SMS lines. Stage and Status slicers are not applied on this page.</div></div>
+        <div class="legend" id="lg" style="margin:10px 2px 4px"></div>
+        <div class="grid" id="sk"></div>`;
+      U.kpis(U.$('#k'), [
+        { label: 'Dev codes followed', value: tot('codes') },
+        { label: 'LR2 → FLC carried', value: U.div(tot('lr2flc'), tot('lr2')), fmt: 'pct', help: 'LR2 lines that reached FLC' },
+        { label: 'FLC → SMS carried', value: U.div(tot('flcsms'), tot('flc')), fmt: 'pct', help: 'FLC lines that reached SMS' },
+        { label: 'SMS → CFM', value: U.div(tot('cfm'), tot('sms')), fmt: 'pct', help: 'Active SMS lines / all SMS lines' },
+        { label: 'Added after LR2', value: tot('addFlc') + tot('addSms'), help: 'Dev codes that first appear at FLC or SMS' },
+        { label: 'Dropped', value: tot('dropped') },
+      ]);
+      U.table(U.$('#t1'), {
+        rows: flows.map(f => ({ season: f.season, ...f.m })), csv: 'stage_conversion',
+        columns: [{ key: 'season', label: 'Season', sort: r => ALL.find(l => l.season === r.season).seasonSort },
+          { key: 'lr2', label: 'LR2', num: true }, { key: 'lr2flc', label: '→ FLC', num: true },
+          { key: 'c1', label: 'LR2→FLC %', num: true, get: r => U.div(r.lr2flc, r.lr2), fmt: U.pct },
+          { key: 'addFlc', label: 'Added at FLC', num: true }, { key: 'flc', label: 'FLC', num: true },
+          { key: 'flcsms', label: '→ SMS', num: true }, { key: 'c2', label: 'FLC→SMS %', num: true, get: r => U.div(r.flcsms, r.flc), fmt: U.pct },
+          { key: 'addSms', label: 'Added at SMS', num: true }, { key: 'sms', label: 'SMS', num: true },
+          { key: 'cfm', label: 'CFM', num: true }, { key: 'c3', label: 'SMS→CFM %', num: true, get: r => U.div(r.cfm, r.sms), fmt: U.pct },
+          { key: 'dropped', label: 'Dropped', num: true }, { key: 'models', label: 'Models', num: true }],
+      });
+      U.$('#lg').innerHTML = `<span><b>Band colour = model</b> (top 8 per season, rest grouped as “Other models”) · hover a band to follow one model ·</span>
+        <span><i style="--c:${DROP_COL}"></i>Dropped</span><span><i style="--c:${ADD_COL}"></i>Added after LR2</span>`;
+      const sk = U.$('#sk');
+      if (!flows.length) { sk.innerHTML = '<div class="card empty">No lines for the current filters</div>'; return; }
+      flows.forEach((f, i) => {
+        const d = document.createElement('div');
+        d.className = 'card';
+        const open = STEPS.slice(0, 3).filter(st => !f.m[st.toLowerCase()]);
+        d.innerHTML = `<h3>${U.esc(f.season)} · model flow LR2 → FLC → SMS → CFM</h3>
+          <div class="note" style="margin:-2px 0 6px">${U.int(f.m.codes)} Dev codes · ${U.int(f.m.models)} models${open.length ? ` · no lines at ${open.join(' / ')} yet (season in progress)` : ''}</div><div id="sk${i}"></div>`;
+        sk.appendChild(d);
+      });
+      flows.forEach((f, i) => U.sankey(U.$(`#sk${i}`), { ...f.chart, title: `${f.season} model flow` }));
     },
 
     drop(body, ls, M) {
@@ -394,6 +507,9 @@
       draw();
     },
   };
+
+  let rz;
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (page === 'sankey' && ALL.length) renderBody(); }, 200); });
 
   // ---------------------------------------------------------------- load
   async function init() {

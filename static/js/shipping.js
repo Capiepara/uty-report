@@ -4,7 +4,7 @@
   const app = U.$('#app');
   const STAGES = ['LR2', 'FLC', 'SMS'];
   const STATUS_COLOR = {
-    'On time': C.good, Late: C.warn, 'Shipped (no plan)': C.series[6], Overdue: C.bad, Pending: C.series[0], Cancelled: C.gray,
+    'On time': C.P[2], Late: C.P[6], 'Shipped (no plan)': C.P[4], Overdue: C.bad, Pending: C.P[8], Cancelled: C.gray,
   };
   const STATUS_HELP = {
     'On time': 'Shipped on or before the planned date + grace days',
@@ -99,7 +99,9 @@
     const body = U.$('#body');
     body.innerHTML = `<div id="k"></div>
       <div class="grid g2-1">${card('c1', 'Shipment status by season & stage', { scroll: true })}${card('c2', 'Status mix')}</div>
-      <div class="grid g3">${card('c3', 'Ship date vs planned date (shipped lines)')}${card('c4', 'Status by factory', { scroll: true })}${card('c5', 'Ordered vs shipped qty by Ship To', { scroll: true })}</div>
+      <div class="grid g3">${card('c3', 'Ship date vs planned date (shipped lines)')}${card('c4', 'Status by factory', { scroll: true })}${card('c5', 'Qty shipped vs ordered by Ship To', { table: true })}</div>
+      ${card('c6', 'Planned vs shipped qty by week')}
+      <div style="height:8px"></div>
       ${card('t1', 'Summary by season & stage', { table: true })}
       <div class="grid g2" style="margin-top:8px">${card('t2', 'Shipments by tracking # (AWB)', { table: true })}${card('t4', 'Overdue lines (not shipped, plan date passed)', { table: true })}</div>
       ${card('t3', 'Shipment lines', { table: true, tools: `<div class="tools"><input type="search" class="search" id="q" placeholder="Search Dev #, model, colorway, AWB, notes" value="${U.esc(search)}"></div>` })}`;
@@ -112,8 +114,7 @@
       { label: 'Overdue (not shipped)', value: S.overdue, cls: S.overdue ? 'bad' : '', help: STATUS_HELP.Overdue },
       { label: 'Pending', value: S.pending, help: STATUS_HELP.Pending },
       { label: 'Cancelled', value: S.cancelled, help: STATUS_HELP.Cancelled },
-      { label: 'Qty shipped / ordered', value: S.fill, fmt: 'pct', sub: `${U.int(S.shipped)} / ${U.int(S.ordered)} pairs`, help: 'Cancelled lines excluded' },
-      { label: 'Tracking # (AWB)', value: S.awb },
+      { label: 'Qty shipped / ordered', value: S.fill, fmt: 'pct', sub: `${U.int(S.shipped)} / ${U.int(S.ordered)} pairs · ${U.int(S.awb)} AWBs`, help: 'Cancelled lines excluded' },
     ]);
 
     const present = STATUSES.filter(s => rows.some(r => r.status === s));
@@ -123,7 +124,7 @@
       onClick: k => { const [s, t] = k.split(' '); sel.season = new Set([s]); sel.stage = new Set([t]); save(); shell(); renderBody(); },
       series: present.map(s => ({ label: s, color: STATUS_COLOR[s], data: ss.map(k => rows.filter(r => ssKey(r) === k && r.status === s).length) })),
     });
-    U.donut(U.$('#c2'), { labels: present, data: present.map(s => rows.filter(r => r.status === s).length), colors: present.map(s => STATUS_COLOR[s]) });
+    U.donut(U.$('#c2'), { labels: present, data: present.map(s => rows.filter(r => r.status === s).length), colors: present.map(s => STATUS_COLOR[s]), centerLabel: 'lines' });
 
     const shippedRows = rows.filter(r => r.daysLate != null);
     U.bar(U.$('#c3'), {
@@ -138,11 +139,25 @@
     });
     const live = rows.filter(r => r.status !== 'Cancelled');
     const tos = U.uniq(live.map(r => r.shipTo)).sort((a, b) => U.sum(live.filter(r => r.shipTo === b), r => r.orderQty) - U.sum(live.filter(r => r.shipTo === a), r => r.orderQty));
-    U.bar(U.$('#c5'), {
-      labels: tos, horizontal: true, showLabels: false,
-      series: [{ label: 'Ordered qty', color: C.series[0], data: tos.map(t => U.sum(live.filter(r => r.shipTo === t), r => r.orderQty)) },
-        { label: 'Shipped qty', color: C.series[1], data: tos.map(t => U.sum(live.filter(r => r.shipTo === t), r => r.shippedQty)) }],
-    });
+    U.$('#c5').classList.add('scroll-y');
+    U.progress(U.$('#c5'), tos.map((t, i) => {
+      const r = live.filter(x => x.shipTo === t), o = U.sum(r, x => x.orderQty), sh = U.sum(r, x => x.shippedQty);
+      return { label: t, value: sh, max: o, text: `${U.int(sh)} / ${U.int(o)}`, color: i % 2 ? C.P[5] : C.P[2], title: `${U.pct(U.div(sh, o))} shipped` };
+    }));
+    // weekly qty: planned (by planned week) vs shipped (by ship week)
+    const wk = n => (n == null ? null : U.weekStart(n));
+    const planW = live.map(r => wk(U.dn(r.plan))), shipW = live.map(r => wk(U.dn(r.shipDate)));
+    const all = [...planW, ...shipW].filter(v => v != null);
+    if (all.length) {
+      const lo = Math.min(...all), hi = Math.max(...all), weeks = [];
+      for (let w = lo; w <= hi; w += 7) weeks.push(w);
+      const by = (ws, f) => weeks.map(w => U.sum(live.filter((r, i) => ws[i] === w), f));
+      U.line(U.$('#c6'), {
+        labels: weeks.map(w => U.fmtD(w)),
+        series: [{ label: 'Shipped qty (ship week)', color: C.P[2], fill: true, data: by(shipW, r => r.shippedQty) },
+          { label: 'Planned qty (planned week)', color: C.P[6], data: by(planW, r => r.orderQty) }],
+      });
+    } else U.$('#c6').innerHTML = '<div class="empty">No dates</div>';
 
     // summary by season & stage
     const files = Object.fromEntries(DATA.files.map(f => [`${f.season} ${f.stage}`, f]));
