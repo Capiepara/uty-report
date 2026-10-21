@@ -257,7 +257,7 @@ const UTY = (() => {
     });
   }
 
-  // thick ring with rounded segment ends and the total in the middle
+  // thick ring, segments joined with no gap, total in the middle
   const centerText = {
     id: 'centerText',
     afterDraw(ch, args, opt) {
@@ -278,7 +278,7 @@ const UTY = (() => {
     const total = o.data.reduce((a, b) => a + b, 0);
     return mount(box, {
       type: 'doughnut',
-      data: { labels: o.labels, datasets: [{ data: o.data, backgroundColor: o.colors, borderWidth: 0, borderRadius: 6, spacing: 3 }] },
+      data: { labels: o.labels, datasets: [{ data: o.data, backgroundColor: o.colors, borderWidth: 0, borderRadius: 0, spacing: 0 }] },
       plugins: [centerText],
       options: {
         cutout: '74%',
