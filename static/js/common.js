@@ -216,9 +216,8 @@ const UTY = (() => {
     const multi = o.series.length > 1;
     const datasets = o.series.map((s, i) => ({
       label: s.label, data: s.data, backgroundColor: s.color || C.series[i],
-      // rounded data-ends; stacked segments are rounded pills split by a 2px surface gap
-      borderColor: '#fff', borderWidth: o.stacked ? 1 : 0,
-      borderRadius: o.stacked ? 4 : 6, borderSkipped: o.stacked ? false : 'start',
+      // square ends, stacked segments touch (no gap)
+      borderWidth: 0, borderRadius: 0, borderSkipped: false,
       maxBarThickness: horiz ? 18 : (o.stacked ? 34 : 26),
       categoryPercentage: multi && !o.stacked ? 0.7 : 0.8, barPercentage: multi && !o.stacked ? 0.85 : 0.7,
     }));
@@ -238,7 +237,7 @@ const UTY = (() => {
         scales: horiz ? { x: valueAxis, y: catAxis } : { x: catAxis, y: valueAxis },
         interaction: o.stacked ? { mode: 'index', axis: horiz ? 'y' : 'x', intersect: false } : { mode: 'nearest', intersect: true },
         plugins: {
-          legend: { display: multi, position: 'top', align: 'start', labels: { usePointStyle: true, pointStyle: 'rectRounded' } },
+          legend: { display: multi, position: 'top', align: 'start', labels: { usePointStyle: true, pointStyle: 'rect' } },
           tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${f(ctx.parsed[horiz ? 'x' : 'y'])}` } },
           datalabels: o.showLabels === false ? { display: false } : o.stacked ? {
             display: ctx => {
