@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta name="robots" content="noindex, nofollow">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · UTY Report</title>
+  <link rel="stylesheet" href="static/css/app.css">
+</head>
+<body data-static="2026-10-21 11:20">
+  <header class="topbar">
+    <div class="brand">UTY Development <small>Report</small></div>
+    <nav class="nav">
+      
+      <a href="dashboard.html" class="active">Dashboard</a>
+      
+      <a href="shipping.html" class="">Shipping</a>
+      
+      <a href="calendar.html" class="">Calendar</a>
+      
+    </nav>
+    <div class="spacer"></div>
+    <div class="datainfo" id="dataInfo"></div>
+    <button class="tbtn" id="btnReload" title="Re-read the Excel files">&#8635; Reload data</button>
+    <button class="tbtn" onclick="window.print()" title="Print or save as PDF">Print / PDF</button>
+  </header>
+  <main class="canvas" id="app">
+    <div class="loading">Loading data…</div>
+  </main>
+  <div class="tip" id="tip"></div>
+  <script src="static/vendor/chart.umd.min.js"></script>
+  <script src="static/vendor/chartjs-plugin-datalabels.min.js"></script>
+  <script src="static/js/common.js"></script>
+  <script src="static/js/dashboard.js"></script>
+</body>
+</html>
